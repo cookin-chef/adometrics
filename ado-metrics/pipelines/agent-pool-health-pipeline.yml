@@ -1,0 +1,126 @@
+name: AgentPool-Health-$(Date:yyyyMMdd)-$(Rev:r)
+
+trigger: none
+
+schedules:
+- cron: "*/15 * * * *"
+  displayName: "Agent Pool Health Check (every 15 minutes)"
+  branches:
+    include:
+    - main
+  always: true
+
+variables:
+- group: ado-metrics-config
+- name: ADO_ORGANIZATION
+  value: 'YOUR_ORG_NAME_HERE'
+
+pool:
+  vmImage: 'windows-latest'
+
+steps:
+- checkout: self
+  persistCredentials: true
+  fetchDepth: 1
+
+- task: PowerShell@2
+  displayName: 'Run Agent Pool Health Check'
+  inputs:
+    targetType: 'filePath'
+    filePath: '$(Build.SourcesDirectory)/ado-metrics/scripts/operational/Run-AgentPoolHealth.ps1'
+    arguments: >-
+      -Organization "$(ADO_ORGANIZATION)"
+      -PAT "$(ADO_PAT)"
+      -OutputPath "$(Build.SourcesDirectory)/ado-metrics/output"
+      -Verbose
+  env:
+    ADO_ORGANIZATION: $(ADO_ORGANIZATION)
+    ADO_PAT: $(ADO_PAT)
+    LOG_ANALYTICS_WORKSPACE_ID: $(LOG_ANALYTICS_WORKSPACE_ID)
+    LOG_ANALYTICS_SHARED_KEY: $(LOG_ANALYTICS_SHARED_KEY)
+    ENABLE_METRICS_PUSH: $(ENABLE_METRICS_PUSH)
+  continueOnError: true
+
+- task: PowerShell@2
+  displayName: 'Configure Git Identity'
+  condition: always()
+  inputs:
+    targetType: 'inline'
+    script: |
+      git config user.email "azure-pipeline@company.com"
+      git config user.name "Azure Pipeline Bot"
+      Write-Host "Git identity configured."
+
+- task: PowerShell@2
+  displayName: 'Commit and Push Health Report'
+  condition: always()
+  inputs:
+    targetType: 'inline'
+    script: |
+      Set-Location "$(Build.SourcesDirectory)"
+
+      # Stage the output files (force-add since output/ is in .gitignore except .gitkeep)
+      git add ado-metrics/output/agent-pool-health.json -f
+      git add ado-metrics/output/agent-pool-health.md -f
+
+      # Check if there are staged changes
+      $status = git status --porcelain
+      if ($status) {
+        Write-Host "Changes detected, committing..."
+        git commit -m "chore: update agent pool health metrics [skip ci]"
+
+        # Pull with rebase in case of concurrent pipeline runs to avoid conflicts
+        git pull origin HEAD:main --rebase --autostash
+        git push origin HEAD:main
+        Write-Host "Health report committed and pushed to main."
+      } else {
+        Write-Host "No changes detected in health report. Skipping commit."
+      }
+  env:
+    SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+
+- task: PowerShell@2
+  displayName: 'Send Alert if Critical Pools Found'
+  condition: always()
+  inputs:
+    targetType: 'inline'
+    script: |
+      $jsonPath = "$(Build.SourcesDirectory)/ado-metrics/output/agent-pool-health.json"
+
+      if (-not (Test-Path $jsonPath)) {
+        Write-Host "Health report JSON not found at: $jsonPath"
+        Write-Host "##vso[task.logissue type=warning]Health report was not generated. Check previous step for errors."
+        exit 0
+      }
+
+      try {
+        $data = Get-Content $jsonPath -Raw | ConvertFrom-Json
+      } catch {
+        Write-Host "##vso[task.logissue type=warning]Failed to parse health report JSON: $($_.Exception.Message)"
+        exit 0
+      }
+
+      $criticalCount = $data.Summary.Critical
+      $warningCount  = $data.Summary.Warning
+      $totalCount    = $data.Summary.Total
+
+      Write-Host "Health Summary: $($data.Summary.Healthy) Healthy | $warningCount Warning | $criticalCount Critical (Total: $totalCount)"
+
+      if ($criticalCount -gt 0) {
+        $criticalPools = ($data.Pools | Where-Object { $_.HealthState -eq 'Critical' } | Select-Object -ExpandProperty PoolName) -join ', '
+        Write-Host "##vso[task.logissue type=warning]CRITICAL: $criticalCount agent pool(s) in critical state: $criticalPools"
+        Write-Host "##vso[task.setvariable variable=CRITICAL_POOL_COUNT]$criticalCount"
+      }
+
+      if ($warningCount -gt 0) {
+        $warningPools = ($data.Pools | Where-Object { $_.HealthState -eq 'Warning' } | Select-Object -ExpandProperty PoolName) -join ', '
+        Write-Host "Note: $warningCount pool(s) in warning state: $warningPools"
+      }
+
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish Health Report Artifact'
+  condition: always()
+  inputs:
+    PathtoPublish: '$(Build.SourcesDirectory)/ado-metrics/output'
+    ArtifactName: 'agent-pool-health-report'
+    publishLocation: 'Container'

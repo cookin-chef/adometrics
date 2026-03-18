@@ -1,0 +1,25 @@
+# Generated report files (committed by pipeline via -f flag)
+output/*.json
+output/*.md
+!output/.gitkeep
+
+# Infrastructure credentials - NEVER commit these
+infrastructure/deployment-credentials.txt
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# Editor artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS metadata
+.DS_Store
+Thumbs.db
+
+# PowerShell session state
+*.pssproj

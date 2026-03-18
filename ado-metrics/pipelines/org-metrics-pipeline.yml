@@ -1,0 +1,124 @@
+name: OrgMetrics-$(Date:yyyyMMdd)-$(Rev:r)
+
+trigger: none
+
+schedules:
+- cron: "0 10 * * *"
+  displayName: "Organization Inventory (daily at 10:00 UTC)"
+  branches:
+    include:
+    - main
+  always: true
+
+variables:
+- group: ado-metrics-config
+- name: ADO_ORGANIZATION
+  value: 'YOUR_ORG_NAME_HERE'
+
+pool:
+  vmImage: 'windows-latest'
+
+steps:
+- checkout: self
+  persistCredentials: true
+  fetchDepth: 1
+
+- task: PowerShell@2
+  displayName: 'Run Organization Inventory'
+  inputs:
+    targetType: 'filePath'
+    filePath: '$(Build.SourcesDirectory)/ado-metrics/scripts/inventory/Run-OrgInventory.ps1'
+    arguments: >-
+      -Organization "$(ADO_ORGANIZATION)"
+      -PAT "$(ADO_PAT)"
+      -OutputPath "$(Build.SourcesDirectory)/ado-metrics/output"
+      -Verbose
+  env:
+    ADO_ORGANIZATION: $(ADO_ORGANIZATION)
+    ADO_PAT: $(ADO_PAT)
+    LOG_ANALYTICS_WORKSPACE_ID: $(LOG_ANALYTICS_WORKSPACE_ID)
+    LOG_ANALYTICS_SHARED_KEY: $(LOG_ANALYTICS_SHARED_KEY)
+    ENABLE_METRICS_PUSH: $(ENABLE_METRICS_PUSH)
+  continueOnError: true
+
+- task: PowerShell@2
+  displayName: 'Configure Git Identity'
+  condition: always()
+  inputs:
+    targetType: 'inline'
+    script: |
+      git config user.email "azure-pipeline@company.com"
+      git config user.name "Azure Pipeline Bot"
+      Write-Host "Git identity configured."
+
+- task: PowerShell@2
+  displayName: 'Commit and Push Inventory Report'
+  condition: always()
+  inputs:
+    targetType: 'inline'
+    script: |
+      Set-Location "$(Build.SourcesDirectory)"
+
+      # Stage the output files (force-add since output/ is in .gitignore)
+      git add ado-metrics/output/ado-org-metrics.json -f
+      git add ado-metrics/output/ado-org-metrics.md -f
+
+      # Check for staged changes
+      $status = git status --porcelain
+      if ($status) {
+        Write-Host "Changes detected, committing..."
+        git commit -m "chore: update organization inventory metrics [skip ci]"
+
+        # Pull with rebase to avoid conflicts with concurrent runs
+        git pull origin HEAD:main --rebase --autostash
+        git push origin HEAD:main
+        Write-Host "Inventory report committed and pushed to main."
+      } else {
+        Write-Host "No changes detected in inventory report. Skipping commit."
+      }
+  env:
+    SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+
+- task: PowerShell@2
+  displayName: 'Display Inventory Summary'
+  condition: always()
+  inputs:
+    targetType: 'inline'
+    script: |
+      $jsonPath = "$(Build.SourcesDirectory)/ado-metrics/output/ado-org-metrics.json"
+
+      if (-not (Test-Path $jsonPath)) {
+        Write-Host "##vso[task.logissue type=warning]Inventory report not found at: $jsonPath"
+        exit 0
+      }
+
+      try {
+        $data = Get-Content $jsonPath -Raw | ConvertFrom-Json
+        $m    = $data.Metrics
+
+        Write-Host ""
+        Write-Host "=============================="
+        Write-Host " Organization Inventory Summary"
+        Write-Host "=============================="
+        Write-Host "  Organization  : $($data.Organization)"
+        Write-Host "  Generated     : $($data.GeneratedUtc)"
+        Write-Host "  Projects      : $($m.TotalProjects)"
+        Write-Host "  Repositories  : $($m.TotalRepos)"
+        Write-Host "  Users         : $($m.TotalUsers)"
+        Write-Host "  Pipelines     : $($m.TotalPipelines)"
+        Write-Host "  - MS-Hosted   : $($m.MicrosoftHostedPipelines)"
+        Write-Host "  - Self-Hosted : $($m.SelfHostedPipelines)"
+        Write-Host "  - Unknown     : $($m.UnknownPipelines)"
+        Write-Host "  SonarQube     : $($m.SonarQubeIntegratedPipelines)"
+        Write-Host "=============================="
+      } catch {
+        Write-Host "##vso[task.logissue type=warning]Failed to parse inventory JSON: $($_.Exception.Message)"
+      }
+
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish Inventory Report Artifact'
+  condition: always()
+  inputs:
+    PathtoPublish: '$(Build.SourcesDirectory)/ado-metrics/output'
+    ArtifactName: 'org-inventory-report'
+    publishLocation: 'Container'
