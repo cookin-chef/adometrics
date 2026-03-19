@@ -42,6 +42,15 @@ steps:
   continueOnError: true
 
 - task: PowerShell@2
+  displayName: 'Generate HTML Dashboard'
+  condition: always()
+  inputs:
+    targetType: 'filePath'
+    filePath: '$(Build.SourcesDirectory)/ado-metrics/scripts/Generate-HtmlDashboard.ps1'
+    arguments: '-OutputPath "$(Build.SourcesDirectory)/ado-metrics/output" -Verbose'
+  continueOnError: true
+
+- task: PowerShell@2
   displayName: 'Configure Git Identity'
   condition: always()
   inputs:
@@ -62,6 +71,7 @@ steps:
       # Stage the output files (force-add since output/ is in .gitignore except .gitkeep)
       git add ado-metrics/output/agent-pool-health.json -f
       git add ado-metrics/output/agent-pool-health.md -f
+      git add ado-metrics/output/dashboard.html -f
 
       # Check if there are staged changes
       $status = git status --porcelain
