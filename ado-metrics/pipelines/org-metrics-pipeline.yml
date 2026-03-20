@@ -27,11 +27,11 @@ steps:
   displayName: 'Run Organization Inventory'
   inputs:
     targetType: 'filePath'
-    filePath: '$(Build.SourcesDirectory)/ado-metrics/scripts/inventory/Run-OrgInventory.ps1'
+    filePath: '$(Build.SourcesDirectory)/scripts/inventory/Run-OrgInventory.ps1'
     arguments: >-
       -Organization "$(ADO_ORGANIZATION)"
       -PAT "$(ADO_PAT)"
-      -OutputPath "$(Build.SourcesDirectory)/ado-metrics/output"
+      -OutputPath "$(Build.SourcesDirectory)/output"
       -Verbose
   env:
     ADO_ORGANIZATION: $(ADO_ORGANIZATION)
@@ -46,8 +46,8 @@ steps:
   condition: always()
   inputs:
     targetType: 'filePath'
-    filePath: '$(Build.SourcesDirectory)/ado-metrics/scripts/Generate-HtmlDashboard.ps1'
-    arguments: '-OutputPath "$(Build.SourcesDirectory)/ado-metrics/output" -Verbose'
+    filePath: '$(Build.SourcesDirectory)/scripts/Generate-HtmlDashboard.ps1'
+    arguments: '-OutputPath "$(Build.SourcesDirectory)/output" -Verbose'
   continueOnError: true
 
 - task: PowerShell@2
@@ -69,9 +69,9 @@ steps:
       Set-Location "$(Build.SourcesDirectory)"
 
       # Stage the output files (force-add since output/ is in .gitignore)
-      git add ado-metrics/output/ado-org-metrics.json -f
-      git add ado-metrics/output/ado-org-metrics.md -f
-      git add ado-metrics/output/dashboard.html -f
+      git add output/ado-org-metrics.json -f
+      git add output/ado-org-metrics.md -f
+      git add output/dashboard.html -f
 
       # Check for staged changes
       $status = git status --porcelain
@@ -95,7 +95,7 @@ steps:
   inputs:
     targetType: 'inline'
     script: |
-      $jsonPath = "$(Build.SourcesDirectory)/ado-metrics/output/ado-org-metrics.json"
+      $jsonPath = "$(Build.SourcesDirectory)/output/ado-org-metrics.json"
 
       if (-not (Test-Path $jsonPath)) {
         Write-Host "##vso[task.logissue type=warning]Inventory report not found at: $jsonPath"
@@ -129,6 +129,6 @@ steps:
   displayName: 'Publish Inventory Report Artifact'
   condition: always()
   inputs:
-    PathtoPublish: '$(Build.SourcesDirectory)/ado-metrics/output'
+    PathtoPublish: '$(Build.SourcesDirectory)/output'
     ArtifactName: 'org-inventory-report'
     publishLocation: 'Container'
