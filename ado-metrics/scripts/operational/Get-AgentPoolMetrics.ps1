@@ -33,8 +33,7 @@ function Get-AgentPools {
     Write-Verbose "Fetching agent pools from: $uri"
 
     try {
-        $response = Invoke-AdoApiRequest -Uri $uri -Headers $Headers -Method GET
-        $pools = $response.value
+        $pools = Get-AdoApiPaginated -Uri $uri -Headers $Headers
 
         Write-Verbose "Retrieved $($pools.Count) agent pools"
         return $pools
