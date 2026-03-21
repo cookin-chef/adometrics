@@ -164,8 +164,10 @@ function Get-PipelineHostingBreakdown {
     .SYNOPSIS
         Count pipelines by hosting type across all projects.
     .DESCRIPTION
-        Iterates all pipelines in all projects and classifies each as
+        Iterates all build definitions in all projects and classifies each as
         MicrosoftHosted, SelfHosted, or Unknown based on queue/pool name heuristics.
+        Uses the Build Definitions API which exposes queue.name for both YAML and
+        classic pipelines — unlike the Pipelines API which omits agent pool info.
 
         Heuristics:
           MicrosoftHosted : queue name contains "azure pipelines", "hosted", or "microsoft"
@@ -200,64 +202,38 @@ function Get-PipelineHostingBreakdown {
     }
 
     foreach ($project in $Projects) {
-        $projectName        = [Uri]::EscapeDataString($project.name)
-        $pipelinesUri       = "https://dev.azure.com/$Organization/$projectName/_apis/pipelines?api-version=7.1"
+        $projectName    = [Uri]::EscapeDataString($project.name)
+        $definitionsUri = "https://dev.azure.com/$Organization/$projectName/_apis/build/definitions?api-version=7.1"
 
         try {
-            $response  = Invoke-AdoApiRequest -Uri $pipelinesUri -Headers $Headers -Method GET
-            $pipelines = $response.value
+            $response    = Invoke-AdoApiRequest -Uri $definitionsUri -Headers $Headers -Method GET
+            $definitions = $response.value
 
-            if (-not $pipelines -or $pipelines.Count -eq 0) {
-                Write-Verbose "Project '$($project.name)': no pipelines found"
+            if (-not $definitions -or $definitions.Count -eq 0) {
+                Write-Verbose "Project '$($project.name)': no build definitions found"
                 continue
             }
 
-            Write-Verbose "Project '$($project.name)': $($pipelines.Count) pipelines found"
+            Write-Verbose "Project '$($project.name)': $($definitions.Count) build definition(s) found"
 
-            foreach ($pipeline in $pipelines) {
+            foreach ($definition in $definitions) {
                 $breakdown.Total++
 
-                # Get pipeline details to determine agent queue
-                try {
-                    $detailUri    = "https://dev.azure.com/$Organization/$projectName/_apis/pipelines/$($pipeline.id)?api-version=7.1"
-                    $detail       = Invoke-AdoApiRequest -Uri $detailUri -Headers $Headers -Method GET
-
-                    # Extract pool/queue name from the pipeline configuration
-                    $queueName = $null
-
-                    # Check YAML pipeline pool property
-                    if ($detail.configuration -and $detail.configuration.repository) {
-                        # YAML-based pipeline - pool is defined in YAML, try to infer from folder name
-                        $queueName = $detail.configuration.repository.defaultBranch
-                    }
-
-                    # Try the queue property directly
-                    if (-not $queueName -and $detail.queue) {
-                        $queueName = $detail.queue.name
-                    }
-
-                    if (-not $queueName -and $detail.configuration -and $detail.configuration.designerJson) {
-                        $designerJson = $detail.configuration.designerJson | ConvertFrom-Json -ErrorAction SilentlyContinue
-                        if ($designerJson -and $designerJson.queue) {
-                            $queueName = $designerJson.queue.name
-                        }
-                    }
-
-                    $hostingType = Resolve-PipelineHostingType -QueueName $queueName
-                    $breakdown[$hostingType]++
-                }
-                catch {
-                    Write-Verbose "Could not get details for pipeline $($pipeline.id) in '$($project.name)': $($_.Exception.Message)"
-                    $breakdown.Unknown++
-                }
+                # queue.name is present in the list response for both YAML and classic pipelines
+                $queueName   = $definition.queue.name
+                $hostingType = Resolve-PipelineHostingType -QueueName $queueName
+                $breakdown[$hostingType]++
             }
         }
         catch {
-            Write-Warning "Could not retrieve pipelines for project '$($project.name)': $($_.Exception.Message)"
+            Write-Warning "Could not retrieve build definitions for project '$($project.name)': $($_.Exception.Message)"
         }
     }
 
-    Write-Verbose "Pipeline hosting breakdown: Total=$($breakdown.Total), MS-Hosted=$($breakdown.MicrosoftHosted), Self-Hosted=$($breakdown.SelfHosted), Unknown=$($breakdown.Unknown)"
+    Write-Verbose ("Pipeline hosting breakdown: Total=$($breakdown.Total), " +
+                   "MS-Hosted=$($breakdown.MicrosoftHosted), " +
+                   "Self-Hosted=$($breakdown.SelfHosted), " +
+                   "Unknown=$($breakdown.Unknown))")
     return $breakdown
 }
 
@@ -394,10 +370,10 @@ function Get-OrganizationInventoryMetrics {
 
     Write-Host "  [4/5] Analyzing pipeline hosting breakdown..."
     $pipelineBreakdown = Get-PipelineHostingBreakdown -Organization $Organization -Projects $projects -Headers $Headers
-    Write-Host "        Total: $($pipelineBreakdown.Total) pipelines " +
+    Write-Host ("        Total: $($pipelineBreakdown.Total) pipelines " +
                "(MS-Hosted: $($pipelineBreakdown.MicrosoftHosted), " +
                "Self-Hosted: $($pipelineBreakdown.SelfHosted), " +
-               "Unknown: $($pipelineBreakdown.Unknown))"
+               "Unknown: $($pipelineBreakdown.Unknown))")
 
     Write-Host "  [5/5] Counting SonarQube integrations..."
     $sonarCount    = Get-SonarQubeIntegrationCount -Organization $Organization -Projects $projects -Headers $Headers
