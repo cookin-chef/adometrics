@@ -104,9 +104,9 @@ foreach ($pool in $allPools) {
 
         # Console output with color coding
         $statusEmoji = switch ($metrics.HealthState) {
-            'Critical' { '🔴 [CRIT]' }
-            'Warning'  { '🟡 [WARN]' }
-            default    { '🟢 [OK]  ' }
+            'Critical' { '[CRIT]' }
+            'Warning'  { '[WARN]' }
+            default    { '[OK]  ' }
         }
 
         $color = switch ($metrics.HealthState) {
@@ -233,15 +233,15 @@ $markdownLines += "## Health Criteria"
 $markdownLines += ""
 $markdownLines += "| State | Condition |"
 $markdownLines += "|-------|-----------|"
-$markdownLines += "| 🔴 Critical | Oldest queued job >= **15 min** OR >= **10 jobs** in queue |"
-$markdownLines += "| 🟡 Warning  | Oldest queued job >= **5 min**  OR >= **5 jobs** in queue |"
-$markdownLines += "| 🟢 Healthy  | All metrics below Warning thresholds |"
+$markdownLines += "| Critical | Oldest queued job >= **15 min** OR >= **10 jobs** in queue |"
+$markdownLines += "| Warning  | Oldest queued job >= **5 min**  OR >= **5 jobs** in queue |"
+$markdownLines += "| Healthy  | All metrics below Warning thresholds |"
 $markdownLines += ""
 $markdownLines += "---"
 $markdownLines += ""
 $markdownLines += "## Summary"
 $markdownLines += ""
-$markdownLines += "| 🟢 Healthy | 🟡 Warning | 🔴 Critical | Total |"
+$markdownLines += "| Healthy | Warning | Critical | Total |"
 $markdownLines += "|-----------|-----------|------------|-------|"
 $markdownLines += "| $healthyCount | $warningCount | $criticalCount | $totalCount |"
 $markdownLines += ""
@@ -254,9 +254,9 @@ $markdownLines += "|------|------|--------|--------|---------|------------------
 
 foreach ($m in ($poolMetrics | Sort-Object HealthState, PoolName)) {
     $stateCell = switch ($m.HealthState) {
-        'Critical' { '🔴 **Critical**' }
-        'Warning'  { '🟡 Warning'      }
-        default    { '🟢 Healthy'      }
+        'Critical' { '**Critical**' }
+        'Warning'  { 'Warning'      }
+        default    { 'Healthy'      }
     }
 
     $hostedCell = if ($m.IsHosted) { 'Yes' } else { 'No' }
@@ -283,17 +283,17 @@ Write-Host "Markdown report saved: $mdOutputPath"
 Write-Host ""
 
 if ($criticalCount -gt 0) {
-    Write-Host "⚠️  ATTENTION: $criticalCount pool(s) are in CRITICAL state!" -ForegroundColor Red
+    Write-Host "ATTENTION: $criticalCount pool(s) are in CRITICAL state!" -ForegroundColor Red
     Write-Host "Exiting with code 1 to signal pipeline failure." -ForegroundColor Red
     exit 1
 }
 elseif ($warningCount -gt 0) {
-    Write-Host "⚠️  NOTICE: $warningCount pool(s) are in WARNING state." -ForegroundColor Yellow
+    Write-Host "NOTICE: $warningCount pool(s) are in WARNING state." -ForegroundColor Yellow
     Write-Host "Exiting with code 0 (warnings do not fail the pipeline)." -ForegroundColor Yellow
     exit 0
 }
 else {
-    Write-Host "✅ All $healthyCount pool(s) are HEALTHY." -ForegroundColor Green
+    Write-Host "All $healthyCount pool(s) are HEALTHY." -ForegroundColor Green
     exit 0
 }
 
