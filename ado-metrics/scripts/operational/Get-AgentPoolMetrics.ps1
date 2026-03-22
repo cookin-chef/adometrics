@@ -29,7 +29,7 @@ function Get-AgentPools {
         [hashtable]$Headers
     )
 
-    $uri = "https://dev.azure.com/$Organization/_apis/distributedtask/pools?api-version=7.1"
+    $uri = "https://dev.azure.com/$Organization/_apis/distributedtask/pools?api-version=7.1-preview.1"
     Write-Verbose "Fetching agent pools from: $uri"
 
     try {
